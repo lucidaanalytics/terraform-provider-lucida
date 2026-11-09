@@ -1,0 +1,42 @@
+name: release
+# Terraform Registry layout: one zip per platform, SHA256SUMS, and its detached GPG signature
+# (the Registry verifies it against the public key registered for the namespace).
+# Needs the repository secrets GPG_PRIVATE_KEY (armored) and PASSPHRASE; without them the job stops
+# before building anything.
+on:
+  push:
+    tags: ["v*"]
+permissions: {}
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Import signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then echo "GPG_PRIVATE_KEY is not set: the Registry rejects unsigned releases" >&2; exit 1; fi
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "GPG_FINGERPRINT=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')" >> "$GITHUB_ENV"
+      - run: go mod tidy
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@v2.20.0
+          goreleaser release --clean --skip=validate
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/*.zip"

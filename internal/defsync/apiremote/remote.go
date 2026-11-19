@@ -89,7 +89,10 @@ func (r *Remote) insightNames(ctx context.Context) (map[string]string, error) {
 }
 
 func (r *Remote) List(ctx context.Context, k defsync.Kind) ([]defsync.Object, error) {
-	rows, err := r.list(ctx, k.Name)
+	if k.Singleton {
+		return r.listSingletons(ctx, k)
+	}
+	rows, err := r.list(ctx, k.Path())
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +108,11 @@ func (r *Remote) List(ctx context.Context, k defsync.Kind) ([]defsync.Object, er
 		return live, nil
 	case "endpoints":
 		return r.listEndpoints(ctx, rows)
+	case "web-goals":
+		for _, g := range rows {
+			goalTarget(g)
+		}
+		return rows, nil
 	case "alerts", "dashboards":
 	default:
 		return rows, nil
@@ -152,6 +160,15 @@ func (r *Remote) List(ctx context.Context, k defsync.Kind) ([]defsync.Object, er
 }
 
 func (r *Remote) Create(ctx context.Context, k defsync.Kind, o defsync.Object) error {
+	if k.Singleton {
+		return r.putSingleton(ctx, k, o)
+	}
+	if k.Name == "webhook-sources" {
+		var err error
+		if o, err = resolveHookSecret(o); err != nil {
+			return err
+		}
+	}
 	if k.Name == "alerts" {
 		return r.createAlert(ctx, o)
 	}
@@ -168,7 +185,7 @@ func (r *Remote) Create(ctx context.Context, k defsync.Kind, o defsync.Object) e
 	var created struct {
 		ID string `json:"id"`
 	}
-	if err := r.api.Do(ctx, "POST", "/"+k.Name, nil, body, &created); err != nil {
+	if err := r.api.Do(ctx, "POST", "/"+k.Path(), nil, body, &created); err != nil {
 		return err
 	}
 	if k.Name == "insights" && r.insights != nil {
@@ -181,6 +198,9 @@ func (r *Remote) Create(ctx context.Context, k defsync.Kind, o defsync.Object) e
 }
 
 func (r *Remote) Update(ctx context.Context, k defsync.Kind, id string, o defsync.Object) error {
+	if k.Singleton {
+		return r.putSingleton(ctx, k, defsync.Object{"section": id, "name": id, "body": o})
+	}
 	if k.Name == "endpoints" {
 		return r.updateEndpoint(ctx, id, o)
 	}
@@ -189,7 +209,7 @@ func (r *Remote) Update(ctx context.Context, k defsync.Kind, id string, o defsyn
 	if k.Put {
 		method = "PUT"
 	}
-	if err := r.api.Do(ctx, method, "/"+k.Name+"/"+url.PathEscape(id), nil, body, nil); err != nil {
+	if err := r.api.Do(ctx, method, "/"+k.Path()+"/"+url.PathEscape(id), nil, body, nil); err != nil {
 		return err
 	}
 	if tiles == nil {
@@ -215,7 +235,7 @@ func (r *Remote) Delete(ctx context.Context, k defsync.Kind, id string) error {
 	if k.Name == "experiments" { // experiments have no delete: archiving hides them
 		return r.api.Do(ctx, "POST", "/experiments/"+url.PathEscape(id)+"/archive", nil, nil, nil)
 	}
-	return r.api.Do(ctx, "DELETE", "/"+k.Name+"/"+url.PathEscape(id), nil, nil, nil)
+	return r.api.Do(ctx, "DELETE", "/"+k.Path()+"/"+url.PathEscape(id), nil, nil, nil)
 }
 
 // createAlert posts under the alert's insight (named in the file) and then applies `enabled`,

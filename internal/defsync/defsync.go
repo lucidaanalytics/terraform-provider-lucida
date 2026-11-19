@@ -26,6 +26,23 @@ type Kind struct {
 	Frozen []string // sent on create only and never compared afterwards (the API cannot change them)
 	Refs   []string // credential references: sent on create only, never compared, pulled or planned (values are env:NAME, resolved by the adapter)
 	Once   bool     // create only: an existing object is never compared or changed (API keys)
+	// Open: every key of the object is managed (settings sections), except id and defaults. NoPrune: prune never
+	// deletes these (the remote has fixed singletons, not a collection). Clean: drops what the API echoes but
+	// a file never writes (zero values), applied to both sides before comparing.
+	Open, NoPrune bool
+	Clean         func(Object)
+	// Route is the API collection when it differs from Name ("web/goals"); Singleton: one fixed object per
+	// project (settings sections, toolbar origins, revenue config): created and updated by PUT, never deleted.
+	Route     string
+	Singleton bool
+}
+
+// Path is the project-relative API route of the kind.
+func (k Kind) Path() string {
+	if k.Route != "" {
+		return k.Route
+	}
+	return k.Name
 }
 
 // Kinds in apply order: insights before dashboards and alerts, which reference insights by name.
@@ -48,6 +65,21 @@ var Kinds = []Kind{
 	// export is frozen at create (delete and recreate to change it). Credentials are env:NAME references.
 	{Name: "export-schedules", Key: "name", Fields: []string{"name", "stream", "format", "destination", "warehouse", "interval_secs", "chunk_secs", "options", "enabled"},
 		Frozen: []string{"stream", "format", "destination", "warehouse", "chunk_secs", "options"}, Refs: []string{"credentials"}},
+	// Settings: one object per section (ingest, sdk) over /settings/<section>; the API serves effective
+	// values plus `defaults`, pull writes only keys that differ from them and prune never resets a section.
+	{Name: "settings", Key: "section", Open: true, NoPrune: true, Singleton: true},
+	// The origins the toolbar may run on: one object, {name: origins, origins: [...]}.
+	{Name: "toolbar-origins", Key: "name", Fields: []string{"name", "origins"}, NoPrune: true, Singleton: true},
+	// Webhook sources by name. The signing secret never leaves the server: auth_secret is an env:NAME
+	// reference read on create only (see apiremote); a pulled file has auth mode, header and tolerance only.
+	{Name: "webhook-sources", Key: "name", Fields: []string{"name", "mapping", "enabled", "log_payloads", "log_keep", "auth"}, Refs: []string{"auth_secret"}, Clean: cleanWebhookSource},
+	// Tracking plans (event schema + enforcement mode) by name.
+	{Name: "tracking-plans", Key: "name", Fields: []string{"name", "mode", "schema"}},
+	// Web goals by name. The API has no update: everything but the name is sent on create only (delete and recreate to change).
+	{Name: "web-goals", Route: "web/goals", Key: "name", Fields: []string{"name", "kind", "target", "value", "value_property", "timestamp_field", "distinct_id_field"},
+		Frozen: []string{"kind", "target", "value", "value_property", "timestamp_field", "distinct_id_field"}},
+	// Revenue config: one object {name: revenue, ...mapping}; the API serves the defaults until it is saved.
+	{Name: "revenue", Route: "web/revenue/config", Key: "name", Open: true, NoPrune: true, Singleton: true, Clean: cleanRevenue},
 	{Name: "endpoints", Key: "slug", Fields: []string{"slug", "name", "description", "refresh_every_minutes", "query", "variables"}, Fixed: []string{"slug"}},
 }
 
@@ -93,6 +125,13 @@ type Change struct {
 // Normalize keeps only the managed fields, JSON-normalized so YAML ints and API floats compare equal.
 func Normalize(k Kind, o Object) Object {
 	out := Object{}
+	if k.Open {
+		for f, v := range o {
+			if v != nil && f != "id" && f != "defaults" {
+				out[f] = v
+			}
+		}
+	}
 	for _, f := range k.Fields {
 		if v, ok := o[f]; ok && v != nil {
 			out[f] = v
@@ -101,6 +140,9 @@ func Normalize(k Kind, o Object) Object {
 	raw, _ := json.Marshal(out) // YAML/JSON-decoded values always marshal
 	var norm Object
 	_ = json.Unmarshal(raw, &norm)
+	if k.Clean != nil {
+		k.Clean(norm)
+	}
 	return norm
 }
 
@@ -181,7 +223,7 @@ func Diff(k Kind, local, remote []Object, prune bool) ([]Change, error) {
 		}
 		out = append(out, Change{Kind: k, Key: key, ID: id, Op: op, Body: body, Diff: sortedCopy(diff)})
 	}
-	if prune && !k.Once { // never delete keys: one may be the key the CLI signs in with
+	if prune && !k.Once && !k.NoPrune { // never delete keys: one may be the key the CLI signs in with
 		var gone []string
 		for key := range byKey {
 			if !seen[key] {

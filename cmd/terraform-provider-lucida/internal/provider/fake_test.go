@@ -56,6 +56,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.problem(w, 404, "no such route")
 		return
 	}
+	rest = strings.Replace(strings.Replace(rest, "web/goals", "web-goals", 1), "web/revenue/config", "revenue/config", 1)
 	route, id, _ := strings.Cut(rest, "/")
 	f.calls = append(f.calls, r.Method+" "+rest)
 	if st := f.fail[r.Method+" "+route]; st != 0 {

@@ -22,6 +22,12 @@ var examples = map[string]struct{ Key, Def string }{
 	"endpoint":          {"top-pages", `{ name = "Top pages", refresh_every_minutes = 60, query = { kind = "trend", series = [{ event = "$pageview" }] } }`},
 	"connector":         {"warehouse-sync", `{ kind = "postgres", config = { host = "db.internal", database = "app" }, sync_interval_secs = 900 }`},
 	"destination":       {"slack-alerts", `{ kind = "slack", config = { channel = "#growth" } }`},
+	"ingest_settings":   {"", `{ capture_allowed_origins = ["https://app.example.com"], server_event_consent = "drop_denied" }`},
+	"sdk_settings":      {"", `{ consent_mode = "opt_in", respect_gpc = true }`},
+	"toolbar_origin":    {"", `{ origins = ["https://app.example.com"] }`},
+	"revenue":           {"", `{ base_currency = "EUR", minor_units = true, purchase_event = "order_completed" }`},
+	"tracking_plan":     {"Core events", `{ mode = "warn", schema = { events = [{ name = "signed_up", properties = [{ name = "plan", required = true }] }] } }`},
+	"web_goal":          {"Signed up", `{ kind = "event", target = "signed_up", value = 10 }`},
 	"traffic_exclusion": {"Office network", `{ kind = "ip", value = "203.0.113.0/24", enabled = true }`},
 }
 
@@ -32,7 +38,11 @@ const refExample = "  credentials = jsonencode({ token = var.lucida_token }) # s
 func ResourceExample(s Spec) string {
 	ex := examples[s.TypeSuffix]
 	var b strings.Builder
-	fmt.Fprintf(&b, "resource \"lucida_%s\" \"example\" {\n  %s = %q\n  definition = jsonencode(%s)\n", s.TypeSuffix, s.Kind.Key, ex.Key, ex.Def)
+	if s.KeyValue != "" {
+		fmt.Fprintf(&b, "resource \"lucida_%s\" \"example\" {\n  definition = jsonencode(%s)\n", s.TypeSuffix, ex.Def)
+	} else {
+		fmt.Fprintf(&b, "resource \"lucida_%s\" \"example\" {\n  %s = %q\n  definition = jsonencode(%s)\n", s.TypeSuffix, s.Kind.Key, ex.Key, ex.Def)
+	}
 	if len(s.Kind.Refs) > 0 {
 		b.WriteString(refExample)
 	}
@@ -68,8 +78,10 @@ func ResourceDoc(s Spec) string {
 	b.WriteString(front(name+" (Resource)", s.Summary))
 	fmt.Fprintf(&b, "# %s (Resource)\n\n%s\n\nManages the `%s` collection, the same kind `lucida pull|plan|apply` calls `%s`.\n\n## Example Usage\n\n```terraform\n%s```\n\n", name, s.Summary, k.Name, k.Name, ResourceExample(s))
 	b.WriteString("## Schema\n\n### Required\n\n")
-	fmt.Fprintf(&b, "- `%s` (String) Natural key. Changing it replaces the resource.\n", k.Key)
-	fmt.Fprintf(&b, "- `definition` (String) JSON object of the managed fields: `%s`.%s\n", strings.Join(definable(k), "`, `"), fixedNote(s))
+	if s.KeyValue == "" {
+		fmt.Fprintf(&b, "- `%s` (String) Natural key. Changing it replaces the resource.\n", k.Key)
+	}
+	fmt.Fprintf(&b, "- `definition` (String) JSON object of the managed fields: %s.%s\n", fieldList(k), fixedNote(s))
 	if len(k.Refs) > 0 || s.Secret {
 		b.WriteString("\n### Optional\n\n")
 		for _, r := range k.Refs {
@@ -77,6 +89,9 @@ func ResourceDoc(s Spec) string {
 		}
 	}
 	b.WriteString("\n### Read-Only\n\n- `id` (String) The Lucida id (the slug for endpoints).\n")
+	if s.KeyValue != "" {
+		fmt.Fprintf(&b, "- `%s` (String) Fixed key of this singleton: `%s`.\n", k.Key, s.KeyValue)
+	}
 	if s.Secret {
 		b.WriteString("- `secret` (String, Sensitive) The key secret, returned once at create. It is stored in Terraform state: protect the state.\n")
 	}

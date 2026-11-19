@@ -49,6 +49,12 @@ provider "lucida" {
 | `lucida_alert` | An insight alert, keyed by name; `insight` names the insight it watches. |
 | `lucida_key` | A project API key. The secret is returned once as the sensitive `secret` attribute; destroying revokes the key. |
 | `lucida_export_schedule` | A batch export schedule. Where and what it exports is fixed at create; `credentials` are sent on create only. |
+| `lucida_ingest_settings` | The `ingest` settings section (a singleton: set only the keys you manage; destroy only removes it from state). |
+| `lucida_sdk_settings` | The `sdk` settings section (a singleton: set only the keys you manage; destroy only removes it from state). |
+| `lucida_toolbar_origin` | The origins the toolbar may run on (a singleton: create adopts the existing list, destroy only removes it from state). |
+| `lucida_tracking_plan` | A tracking plan (event schema and enforcement mode `off|warn|enforce`), keyed by name. |
+| `lucida_web_goal` | A web goal, keyed by name. The API cannot edit a goal: changing anything but the name replaces it. |
+| `lucida_revenue` | The project's revenue mapping (a singleton: create adopts the saved config, destroy only removes it from state). |
 | `lucida_endpoint` | A query endpoint, keyed by slug; a change to query or variables creates a new version. |
 | `lucida_connector` | A connector instance (source or destination), keyed by name. `credentials` are sent on create only. |
 | `lucida_destination` | A destination connector (the same API object as `lucida_connector`; pick a destination `kind`). |

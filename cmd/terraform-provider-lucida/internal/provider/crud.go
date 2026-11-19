@@ -57,6 +57,9 @@ func idOf(o defsync.Object) string { return fmt.Sprint(o["id"]) }
 // Create makes the object and returns it with its id. An existing object with the same natural key
 // is an error (import it), never silently adopted.
 func (c Crud) Create(ctx context.Context, e Entity) (Entity, error) {
+	if c.Spec.Kind.Singleton {
+		return c.adopt(ctx, e)
+	}
 	var secret string
 	r := c.remote(func(_, s string) error { secret = s; return nil })
 	before, err := c.list(ctx, r)
@@ -88,6 +91,13 @@ func (c Crud) Create(ctx context.Context, e Entity) (Entity, error) {
 		}
 	}
 	return e, fmt.Errorf("%s %q was created but could not be found afterwards", c.Spec.Kind.Name, e.Key)
+}
+
+// adopt "creates" a singleton: it always exists, so create is an update of the written fields.
+func (c Crud) adopt(ctx context.Context, e Entity) (Entity, error) {
+	e.Key = c.Spec.KeyValue
+	e.ID = c.Spec.KeyValue
+	return e, c.Update(ctx, e)
 }
 
 // Read fetches the object by id. found is false when it is gone. prior is the last known definition
@@ -148,6 +158,9 @@ func (c Crud) Update(ctx context.Context, e Entity) error {
 
 // Delete removes the object; one that is already gone is success.
 func (c Crud) Delete(ctx context.Context, id string) error {
+	if c.Spec.Kind.Singleton {
+		return nil // fixed object: destroy forgets it, the API value stays
+	}
 	err := c.remote(nil).Delete(ctx, c.Spec.Kind, id)
 	if IsNotFound(err) {
 		return nil

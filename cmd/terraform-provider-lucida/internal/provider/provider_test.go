@@ -61,7 +61,7 @@ func TestSpecsAreWellFormed(t *testing.T) {
 		if _, ok := examples[s.TypeSuffix]; !ok {
 			t.Errorf("%s has no example in docs.go", s.TypeSuffix)
 		}
-		if !strings.Contains(strings.Join(s.Kind.Fields, ","), s.Kind.Key) {
+		if !s.Kind.Open && !strings.Contains(strings.Join(s.Kind.Fields, ","), s.Kind.Key) {
 			t.Errorf("%s: key %q is not one of its fields", s.TypeSuffix, s.Kind.Key)
 		}
 	}

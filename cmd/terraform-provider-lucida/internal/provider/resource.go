@@ -49,10 +49,9 @@ func (r *kindResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 	a := map[string]schema.Attribute{
 		attrID: schema.StringAttribute{Computed: true, Description: "The Lucida id (the slug for endpoints).",
 			PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-		k.Key: schema.StringAttribute{Required: true, Description: "Natural key. Changing it replaces the resource.",
-			PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-		attrDefinition: schema.StringAttribute{Required: true, MarkdownDescription: "JSON object (`jsonencode({...})`) of the managed fields: `" +
-			strings.Join(definable(k), "`, `") + "`." + fixedNote(r.spec)},
+		k.Key: r.keyAttribute(),
+		attrDefinition: schema.StringAttribute{Required: true, MarkdownDescription: "JSON object (`jsonencode({...})`) of the managed fields: " +
+			fieldList(k) + "." + fixedNote(r.spec)},
 	}
 	if r.spec.Secret {
 		a[attrSecret] = schema.StringAttribute{Computed: true, Sensitive: true, Description: "The key secret, returned once at create.",
@@ -62,6 +61,15 @@ func (r *kindResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 		a[ref] = schema.StringAttribute{Optional: true, Sensitive: true, MarkdownDescription: "Sensitive JSON object (`jsonencode({...})`), sent on create only and never read back. Rotate it with `terraform apply -replace`."}
 	}
 	resp.Schema = schema.Schema{Description: r.spec.Summary, Attributes: a}
+}
+
+func (r *kindResource) keyAttribute() schema.Attribute {
+	if r.spec.KeyValue != "" {
+		return schema.StringAttribute{Computed: true, Description: "Fixed key of this singleton (`" + r.spec.KeyValue + "`).",
+			PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}
+	}
+	return schema.StringAttribute{Required: true, Description: "Natural key. Changing it replaces the resource.",
+		PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}}
 }
 
 func fixedNote(s Spec) string {
@@ -125,6 +133,9 @@ func (r *kindResource) entity(ctx context.Context, g attrs) (Entity, diag.Diagno
 	d.Append(g.GetAttribute(ctx, path.Root(r.spec.Kind.Key), &key)...)
 	d.Append(g.GetAttribute(ctx, path.Root(attrDefinition), &def)...)
 	e := Entity{ID: id.ValueString(), Key: key.ValueString()}
+	if r.spec.KeyValue != "" {
+		e.Key = r.spec.KeyValue
+	}
 	if r.spec.Secret {
 		d.Append(g.GetAttribute(ctx, path.Root(attrSecret), &secret)...)
 		e.Secret = secret.ValueString()

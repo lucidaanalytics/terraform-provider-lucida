@@ -48,11 +48,19 @@ func validateDefinition(k defsync.Kind, s string) error {
 			return fmt.Errorf("%q is the resource's own attribute, remove it from the definition", f)
 		case slices.Contains(k.Refs, f):
 			return fmt.Errorf("%q is a separate sensitive attribute, remove it from the definition", f)
-		case !slices.Contains(k.Fields, f):
+		case !k.Open && !slices.Contains(k.Fields, f):
 			return fmt.Errorf("unknown field %q; %s manages %s", f, k.Name, strings.Join(definable(k), ", "))
 		}
 	}
 	return nil
+}
+
+// fieldList describes the fields a definition may carry, for schema text.
+func fieldList(k defsync.Kind) string {
+	if k.Open {
+		return "any key of the object (the API's own names)"
+	}
+	return "`" + strings.Join(definable(k), "`, `") + "`"
 }
 
 // definable lists the fields a definition may carry.
